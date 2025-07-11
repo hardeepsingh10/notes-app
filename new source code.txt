@@ -1,0 +1,545 @@
+from kivy.lang import Builder
+from kivy.properties import StringProperty
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivymd.app import MDApp
+from kivymd.uix.button import MDIconButton, MDRaisedButton
+from kivymd.uix.filemanager import MDFileManager
+from kivy.core.window import Window
+from kivy.clock import Clock
+import os
+import json
+import datetime
+
+# Set default window size
+Window.size = (360, 640)
+
+# KV language string - minimalist design
+KV = '''
+ScreenManager:
+    MainScreen:
+    NewNoteScreen:
+    SettingsScreen:
+
+<MainScreen>:
+    name: 'main'
+    BoxLayout:
+        orientation: 'vertical'
+        
+        MDTopAppBar:
+            title: 'Notes'
+            elevation: 4
+            md_bg_color: 0.13, 0.13, 0.13, 1
+            specific_text_color: 1, 1, 1, 1
+            right_action_items: [["cog", lambda x: app.go_to_settings()]]
+
+        ScrollView:
+            do_scroll_x: False
+            do_scroll_y: True
+            GridLayout:
+                id: notes_container
+                cols: 1
+                padding: 10
+                spacing: 10
+                size_hint_y: None
+                height: self.minimum_height
+
+    # FAB - fixed position at bottom right
+    MDFloatingActionButton:
+        icon: 'plus'
+        md_bg_color: 0.13, 0.13, 0.13, 1
+        pos_hint: {'right': 0.95, 'y': 0.05}
+        on_release: app.new_note()
+
+<NoteCard>:
+    orientation: 'vertical'
+    size_hint_y: None
+    height: self.minimum_height
+    padding: 12
+    spacing: 8
+    note_id: ''
+    canvas.before:
+        Color:
+            rgba: (0.1, 0.1, 0.1, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [16]
+
+    BoxLayout:
+        spacing: 8
+        size_hint_y: None
+        height: 48
+        padding: [0, 0, 0, 4]
+
+        # Profile picture with rounded corners
+        BoxLayout:
+            size_hint: None, None
+            size: 40, 40
+            
+            canvas:
+                Color:
+                    rgba: 1, 1, 1, 1
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [10]
+                    source: root.pfp
+
+        BoxLayout:
+            orientation: 'vertical'
+            padding: [4, 0, 0, 0]
+
+            # Username with clean styling
+            Label:
+                text: root.username
+                font_size: "14sp"
+                color: 1, 1, 1, 1
+                text_size: self.width, None
+                size_hint_y: None
+                height: self.texture_size[1]
+                halign: 'left'
+                valign: 'middle'
+                bold: True
+
+            # Date with subtle styling
+            Label:
+                text: root.date
+                font_size: "12sp"
+                color: 0.7, 0.7, 0.7, 1
+                text_size: self.width, None
+                size_hint_y: None
+                height: self.texture_size[1]
+                halign: 'left'
+                valign: 'middle'
+
+    # Note text with clean display
+    Label:
+        text: root.text
+        font_size: "14sp"
+        color: 0.9, 0.9, 0.9, 1
+        text_size: self.width, None
+        size_hint_y: None
+        height: self.texture_size[1]
+        halign: 'left'
+        valign: 'top'
+        padding: [10, 10]
+
+    BoxLayout:
+        size_hint_y: None
+        height: 40
+        spacing: 8
+        padding: [0, 4, 0, 0]
+        
+        Widget:
+            # Spacer
+            
+        MDIconButton:
+            icon: 'pencil'
+            theme_text_color: 'Custom'
+            text_color: 0.9, 0.9, 0.9, 1
+            on_release: app.edit_note(root.note_id)
+            
+        MDIconButton:
+            icon: 'delete'
+            theme_text_color: 'Custom'
+            text_color: 0.9, 0.9, 0.9, 1
+            on_release: app.delete_note(root.note_id)
+
+<NewNoteScreen>:
+    name: 'new_note'
+    BoxLayout:
+        orientation: 'vertical'
+
+        MDTopAppBar:
+            title: 'Note'
+            md_bg_color: 0.13, 0.13, 0.13, 1
+            left_action_items: [["arrow-left", lambda x: app.go_back()]]
+            right_action_items: [["check", lambda x: app.save_note()]]
+            
+        TextInput:
+            id: note_input
+            hint_text: 'Write your note here...'
+            multiline: True
+            background_color: 0.15, 0.15, 0.15, 1
+            foreground_color: 0.9, 0.9, 0.9, 1
+            cursor_color: 1, 1, 1, 1
+            font_size: '15sp'
+            padding: [16, 16, 16, 16]
+            selection_color: 0.3, 0.3, 0.3, 0.5
+
+<SettingsScreen>:
+    name: 'settings'
+    BoxLayout:
+        orientation: 'vertical'
+
+        MDTopAppBar:
+            title: 'Settings'
+            md_bg_color: 0.13, 0.13, 0.13, 1
+            left_action_items: [["arrow-left", lambda x: app.go_back()]]
+
+        ScrollView:
+            do_scroll_x: False
+            do_scroll_y: True
+            
+            BoxLayout:
+                orientation: 'vertical'
+                padding: 20
+                spacing: 20
+                size_hint_y: None
+                height: self.minimum_height
+
+                BoxLayout:
+                    orientation: 'vertical'
+                    spacing: 16
+                    size_hint_y: None
+                    height: 180
+
+                    # Profile image with rounded corners
+                    BoxLayout:
+                        size_hint: None, None
+                        size: 100, 100
+                        pos_hint: {'center_x': 0.5}
+                        
+                        canvas:
+                            Color:
+                                rgba: 1, 1, 1, 1
+                            RoundedRectangle:
+                                pos: self.pos
+                                size: self.size
+                                radius: [15]
+                                source: app.profile_pic
+
+                    MDRaisedButton:
+                        text: 'Change Profile Picture'
+                        md_bg_color: 0.13, 0.13, 0.13, 1
+                        pos_hint: {'center_x': 0.5}
+                        on_release: app.file_manager_open()
+
+                Label:
+                    text: 'Your Name'
+                    color: 0.9, 0.9, 0.9, 1
+                    font_size: '14sp'
+                    size_hint_y: None
+                    height: 30
+                    halign: 'left'
+                    text_size: self.width, None
+
+                TextInput:
+                    id: name_input
+                    hint_text: 'Enter your name'
+                    text: app.username
+                    size_hint_y: None
+                    height: 48
+                    multiline: False
+                    padding: [12, 12, 12, 12]
+                    background_color: 0.15, 0.15, 0.15, 1
+                    foreground_color: 0.9, 0.9, 0.9, 1
+                    cursor_color: 1, 1, 1, 1
+                    selection_color: 0.3, 0.3, 0.3, 0.5
+
+                MDRaisedButton:
+                    text: 'Save'
+                    pos_hint: {'center_x': 0.5}
+                    md_bg_color: 0.13, 0.13, 0.13, 1
+                    on_release: app.save_profile()
+'''
+
+
+class MainScreen(Screen):
+    pass
+
+
+class NewNoteScreen(Screen):
+    pass
+
+
+class SettingsScreen(Screen):
+    pass
+
+
+class NoteCard(BoxLayout):
+    username = StringProperty()
+    date = StringProperty()
+    text = StringProperty()
+    pfp = StringProperty()
+    note_id = StringProperty()
+
+
+class NotesApp(MDApp):
+    username = StringProperty("User")
+    profile_pic = StringProperty("default_profile.jpg")
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.notes_dict = {}
+        self.data_file = "notes_data.json"
+        self.settings_file = "settings.json"
+        self.editing_note_id = None
+        self.file_manager = None
+        
+    def build(self):
+        # Set dark theme
+        self.theme_cls.theme_style = "Dark"
+        self.theme_cls.primary_palette = "BlueGray"
+        
+        # Create default profile image if it doesn't exist
+        self.create_default_profile()
+        
+        # Initialize file manager
+        self.file_manager = MDFileManager(
+            exit_manager=self.exit_manager,
+            select_path=self.select_path,
+        )
+        
+        # Load user settings
+        self.load_settings()
+        
+        # Parse and return the UI
+        return Builder.load_string(KV)
+        
+    def on_start(self):
+        """Load notes after UI is ready"""
+        Clock.schedule_once(lambda dt: self.load_notes(), 0.5)
+        
+    def create_default_profile(self):
+        """Create a default profile pic if needed"""
+        if not os.path.exists('default_profile.jpg'):
+            try:
+                # Try using PIL if available
+                from PIL import Image, ImageDraw
+                img = Image.new('RGB', (100, 100), color=(128, 128, 128))
+                draw = ImageDraw.Draw(img)
+                img.save('default_profile.jpg')
+            except ImportError:
+                # Fallback to creating a simple texture
+                from kivy.graphics.texture import Texture
+                texture = Texture.create(size=(100, 100))
+                # Fill with gray pixels
+                texture.blit_buffer(bytes([128] * 4 * 100 * 100), colorfmt='rgba')
+                texture.save('default_profile.jpg')
+
+    def load_settings(self):
+        """Load user settings from settings.json"""
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r') as f:
+                    data = json.load(f)
+                    self.username = data.get('username', "User")
+                    pic_path = data.get('profile_pic', "default_profile.jpg")
+                    if os.path.exists(pic_path):
+                        self.profile_pic = pic_path
+                    else:
+                        self.profile_pic = "default_profile.jpg"
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+
+    def save_settings(self):
+        """Save user settings to settings.json"""
+        try:
+            with open(self.settings_file, 'w') as f:
+                json.dump({
+                    'username': self.username,
+                    'profile_pic': self.profile_pic
+                }, f)
+            return True
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+            return False
+
+    def load_notes(self):
+        """Load notes from data file"""
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'r') as f:
+                    self.notes_dict = json.load(f)
+            self.recreate_note_cards()
+        except Exception as e:
+            print(f"Error loading notes: {e}")
+            self.notes_dict = {}
+
+    def save_notes(self):
+        """Save notes to data file"""
+        try:
+            with open(self.data_file, 'w') as f:
+                json.dump(self.notes_dict, f)
+            return True
+        except Exception as e:
+            print(f"Error saving notes: {e}")
+            return False
+
+    def recreate_note_cards(self, *args):
+        """Recreate all note cards from the notes dictionary"""
+        try:
+            container = self.root.get_screen('main').ids.notes_container
+            container.clear_widgets()
+            
+            if not self.notes_dict:
+                return
+                
+            # Sort by timestamp (newest first)
+            sorted_notes = sorted(
+                self.notes_dict.items(), 
+                key=lambda item: float(item[0]), 
+                reverse=True
+            )
+            
+            for note_id, note in sorted_notes:
+                self.create_note_card(note_id, note)
+        except Exception as e:
+            print(f"Error recreating note cards: {e}")
+
+    def create_note_card(self, note_id, note_data):
+        """Create a single note card widget"""
+        try:
+            # Make sure profile pic exists
+            pfp_path = note_data.get('pfp', 'default_profile.jpg')
+            if not os.path.exists(pfp_path):
+                pfp_path = 'default_profile.jpg'
+                
+            # Create card widget
+            card = NoteCard(
+                note_id=note_id,
+                username=note_data.get('username', self.username),
+                date=note_data.get('date', "Unknown date"),
+                text=note_data.get('text', ""),
+                pfp=pfp_path
+            )
+            
+            # Add to container
+            self.root.get_screen('main').ids.notes_container.add_widget(card)
+        except Exception as e:
+            print(f"Error creating note card: {e}")
+
+    def new_note(self):
+        """Start creating a new note"""
+        self.editing_note_id = None
+        self.root.current = 'new_note'
+        self.root.get_screen('new_note').ids.note_input.text = ''
+
+    def save_note(self):
+        """Save the current note (new or edited)"""
+        # FIRST switch to main screen
+        self.root.current = 'main'
+        
+        # THEN process note data with a delay
+        def process_note(*args):
+            try:
+                # Get note text
+                text = self.root.get_screen('new_note').ids.note_input.text.strip()
+                if not text:
+                    return
+                    
+                if self.editing_note_id and self.editing_note_id in self.notes_dict:
+                    # Update existing note
+                    self.notes_dict[self.editing_note_id]['text'] = text
+                else:
+                    # Create a new note
+                    timestamp = datetime.datetime.now().timestamp()
+                    note_id = str(timestamp)
+                    self.notes_dict[note_id] = {
+                        'username': self.username,
+                        'date': datetime.datetime.now().strftime("%b %d, %Y"),
+                        'text': text,
+                        'pfp': self.profile_pic if os.path.exists(self.profile_pic) else 'default_profile.jpg'
+                    }
+                
+                # Reset editing state
+                self.editing_note_id = None
+                
+                # Save to file
+                if self.save_notes():
+                    # Update UI with delay
+                    Clock.schedule_once(self.recreate_note_cards, 0.1)
+            except Exception as e:
+                print(f"Error saving note: {e}")
+        
+        # Add delay before processing
+        Clock.schedule_once(process_note, 0.2)
+
+    def edit_note(self, note_id):
+        """Edit an existing note"""
+        try:
+            if note_id in self.notes_dict:
+                self.editing_note_id = note_id
+                self.root.current = 'new_note'
+                self.root.get_screen('new_note').ids.note_input.text = self.notes_dict[note_id]['text']
+        except Exception as e:
+            print(f"Error editing note: {e}")
+
+    def delete_note(self, note_id):
+        """Delete an existing note"""
+        try:
+            if note_id in self.notes_dict:
+                del self.notes_dict[note_id]
+                if self.save_notes():
+                    Clock.schedule_once(self.recreate_note_cards, 0.1)
+        except Exception as e:
+            print(f"Error deleting note: {e}")
+
+    def go_to_settings(self):
+        """Navigate to settings screen"""
+        try:
+            self.root.current = 'settings'
+            screen = self.root.get_screen('settings')
+            screen.ids.name_input.text = self.username
+            
+            if not os.path.exists(self.profile_pic):
+                self.profile_pic = 'default_profile.jpg'
+                
+        except Exception as e:
+            print(f"Error navigating to settings: {e}")
+
+    def go_back(self):
+        """Navigate back to main screen"""
+        self.root.current = 'main'
+
+    def save_profile(self):
+        """Save profile settings"""
+        try:
+            name = self.root.get_screen('settings').ids.name_input.text.strip()
+            if name:
+                self.username = name
+
+            # Save settings
+            self.save_settings()
+            
+            # Update username in all notes
+            for note_id in self.notes_dict:
+                self.notes_dict[note_id]['username'] = self.username
+                self.notes_dict[note_id]['pfp'] = self.profile_pic
+                
+            # Save notes
+            self.save_notes()
+            
+            # Go back to main
+            self.root.current = 'main'
+            
+            # Update UI after transition
+            Clock.schedule_once(self.recreate_note_cards, 0.2)
+        except Exception as e:
+            print(f"Error saving profile: {e}")
+
+    def file_manager_open(self):
+        """Open file manager to select profile picture"""
+        if self.file_manager:
+            self.file_manager.show(os.path.expanduser("~"))
+
+    def exit_manager(self, *args):
+        """Close file manager"""
+        if self.file_manager:
+            self.file_manager.close()
+
+    def select_path(self, path):
+        """Handle selected profile picture path"""
+        try:
+            if os.path.exists(path) and path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                self.profile_pic = path
+        except Exception as e:
+            print(f"Error selecting image: {e}")
+        finally:
+            self.exit_manager()
+
+
+if __name__ == '__main__':
+    NotesApp().run()
